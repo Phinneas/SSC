@@ -1,0 +1,36 @@
+{
+  "name": "my-ssc-chatbot-demo",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "mastra start",
+    "surrealdb": "surreal start"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.2.12",
+    "@ai-sdk/openai": "^1.3.22",
+    "@mastra/core": "^0.10.1",
+    "@mastra/libsql": "^0.10.0",
+    "@mastra/memory": "^0.10.1",
+    "hono": "^4.7.10",
+    "langfuse-vercel": "^3.37.3",
+    "surrealdb": "^1.3.2",
+    "zod": "^3.25.32"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.24",
+    "mastra": "^0.10.1",
+    "typescript": "^5.8.3"
+  }
+}
