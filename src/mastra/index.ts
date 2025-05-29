@@ -21,6 +21,6 @@ export const mastra = new Mastra({
     },
   },
   server: {
-    port: parseInt(process.env.PORT || '4111', 10), // Ensures it uses Railway's assigned PORT
+    port: parseInt(process.env.PORT || '4112', 10), // Keep this for local dev, Vercel uses its own PORT
   },
 });
