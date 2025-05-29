@@ -1,22 +1,19 @@
 import { Agent } from "@mastra/core/agent";
-import { openai } from "@ai-sdk/openai"; // Your chosen LLM
-import { z } from "zod"; // For defining tool schemas
-import { Surreal } from 'surrealdb'; // SurrealDB client (updated package)
-import { createTool } from "@mastra/core/tools"; // For creating tools
+import { openai } from "@ai-sdk/openai";
+import { z } from "zod";
+import { Surreal } from 'surrealdb'; // SurrealDB client
+import { createTool } from "@mastra/core/tools";
 
 // --- Initialize SurrealDB Connection ---
-// These environment variables will be picked up from Railway's config
 const SURREALDB_HOST = process.env.SURREALDB_HOST!;
 const SURREALDB_USER = process.env.SURREALDB_USER!;
 const SURREALDB_PASS = process.env.SURREALDB_PASS!;
 const SURREALDB_NS = process.env.SURREALDB_NS!;
 const SURREALDB_DB = process.env.SURREALDB_DB!;
 
-// Initialize SurrealDB client
 const db = new Surreal();
 
-// Function to connect to SurrealDB and test the connection
-async function connectToSurrealDB() {
+async function initializeSurrealDBConnection() {
   try {
     // Connect to the database
     await db.connect(SURREALDB_HOST);
@@ -40,15 +37,14 @@ async function connectToSurrealDB() {
     console.log("Connection verified with query result:", result);
   } catch (error) {
     console.error("Failed to connect to SurrealDB:", error);
-    // Log any connection errors to see them in Railway logs
   }
 }
 
-// Call connectToSurrealDB on application startup
-connectToSurrealDB();
+initializeSurrealDBConnection().catch(err => {
+  console.error("SurrealDB initialization failed at top level:", err);
+});
 
-// --- Define a Mock RAG Tool ---
-// This tool will simulate querying your knowledge base and check SurrealDB status
+// --- Define a Mock RAG Tool (updated to check SurrealDB) ---
 const knowledgeBaseTool = createTool({
   id: "knowledgeBase",
   description: "This tool queries the Salish Sea Consulting knowledge base to retrieve relevant information.",
@@ -59,14 +55,12 @@ const knowledgeBaseTool = createTool({
     const { query } = context;
     let surrealDbStatus = "Disconnected or Error";
     try {
-        // Attempt a simple SurrealDB operation to confirm connection
-        const result = await db.query("INFO FOR DB");
+        const result = await db.query("INFO FOR DB"); // Attempt a simple query
         surrealDbStatus = "Connected and operational";
-    } catch (error: any) { // Use 'any' for simpler error handling in demo
+    } catch (error: any) {
         surrealDbStatus = `Failed to confirm connection: ${error.message}`;
     }
-    // This is the mock response returned to the LLM
-    return `MOCK RAG: I received the query "${query}". SurrealDB connection status: ${surrealDbStatus}. In a real scenario, I would search our knowledge base in SurrealDB and provide detailed information from our content.`;
+    return `MOCK RAG: Your query was "${query}". SurrealDB connection status: ${surrealDbStatus}.\n\nHere's some mock data about Salish Sea Consulting:\n- Specializes in marine ecosystem management\n- Offers services in environmental impact assessment\n- Has expertise in sustainable fisheries management\n- Provides data-driven solutions for coastal communities`;
   },
 });
 
@@ -79,8 +73,8 @@ export const salishSeaChatbot = new Agent({
   - If you cannot find relevant information, politely state that you don't have enough information to answer that specific question from the available knowledge base and suggest they visit the website directly or contact the team.
   - Maintain a tone that is knowledgeable, reassuring, and aligned with a professional consulting firm.
   - Do not invent information or hallucinate.`,
-  model: openai(process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini"), // Your main chat model
+  model: openai(process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini"),
   tools: {
-    knowledgeBase: knowledgeBaseTool, // Use the tool directly
+    knowledgeBase: knowledgeBaseTool,
   },
 });
