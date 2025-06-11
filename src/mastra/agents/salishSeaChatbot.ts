@@ -12,18 +12,25 @@ let dbConnected = false;
 let dbConnectionAttempted = false;
 
 // --- SurrealDB Connection Configuration ---
-// Use environment variables for database configuration
-const SURREALDB_HOST = process.env.SURREALDB_HOST;
+// Use environment variables for database configuration with cloud endpoint fallback
+const SURREALDB_HOST = process.env.SURREALDB_HOST || 'wss://scraper-06bhh0a1qlrmvdad4lrmheafb0.aws-euw1.surreal.cloud';
+const SURREALDB_TOKEN = process.env.SURREALDB_TOKEN; // For cloud authentication
 const SURREALDB_USER = process.env.SURREALDB_USER;
 const SURREALDB_PASS = process.env.SURREALDB_PASS;
 const SURREALDB_NS = process.env.SURREALDB_NS;
 const SURREALDB_DB = process.env.SURREALDB_DB;
 
-// Log the database configuration (without passwords)
-console.log(`SurrealDB Configuration:\n  Host: ${SURREALDB_HOST}\n  User: ${SURREALDB_USER}\n  NS: ${SURREALDB_NS}\n  DB: ${SURREALDB_DB}`);
+// Log the database configuration (without passwords/tokens)
+console.log(`SurrealDB Configuration:\n  Host: ${SURREALDB_HOST}\n  User: ${SURREALDB_USER}\n  NS: ${SURREALDB_NS}\n  DB: ${SURREALDB_DB}\n  Using token auth: ${!!SURREALDB_TOKEN}`);
 
 // Function to check if all required DB config is present
 function hasRequiredDbConfig() {
+  // Check if we have token-based auth for cloud
+  if (SURREALDB_HOST?.includes('surreal.cloud') && SURREALDB_TOKEN && SURREALDB_NS && SURREALDB_DB) {
+    return true;
+  }
+  
+  // Check if we have username/password auth
   const missingVars = [];
   if (!SURREALDB_HOST) missingVars.push('SURREALDB_HOST');
   if (!SURREALDB_USER) missingVars.push('SURREALDB_USER');
@@ -68,17 +75,30 @@ async function initializeSurrealDBConnection() {
       throw error;
     }
     
-    // Select a specific namespace / database
-    await db.use({
-      namespace: SURREALDB_NS!,
-      database: SURREALDB_DB!
-    });
-    
-    // Signin with credentials
-    await db.signin({
-      username: SURREALDB_USER!,
-      password: SURREALDB_PASS!
-    });
+    // Check if we're using token auth (for cloud) or username/password auth
+    if (SURREALDB_HOST.includes('surreal.cloud') && SURREALDB_TOKEN) {
+      console.log('Using token-based authentication for SurrealDB Cloud');
+      // Authenticate with token
+      await db.authenticate(SURREALDB_TOKEN);
+      
+      // Still need to select namespace and database after token auth
+      await db.use({
+        namespace: SURREALDB_NS!,
+        database: SURREALDB_DB!
+      });
+    } else {
+      // Select a specific namespace / database
+      await db.use({
+        namespace: SURREALDB_NS!,
+        database: SURREALDB_DB!
+      });
+      
+      // Signin with credentials
+      await db.signin({
+        username: SURREALDB_USER!,
+        password: SURREALDB_PASS!
+      });
+    }
     
     console.log("Connected to SurrealDB successfully!");
     dbConnected = true;
