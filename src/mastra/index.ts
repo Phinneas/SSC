@@ -4,6 +4,7 @@ import { VercelDeployer } from '@mastra/deployer-vercel';
 import { LangfuseExporter } from 'langfuse-vercel';
 import { salishSeaChatbot } from './agents/salishSeaChatbot'; // Import from the correct relative path
 
+// Create the Mastra instance
 export const mastra = new Mastra({
   agents: {
     salishSeaChatbot, // Register your main chatbot agent
