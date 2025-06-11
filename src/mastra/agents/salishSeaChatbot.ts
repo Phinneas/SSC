@@ -17,8 +17,8 @@ const SURREALDB_HOST = process.env.SURREALDB_HOST || 'wss://scraper-06bhh0a1qlrm
 const SURREALDB_TOKEN = process.env.SURREALDB_TOKEN; // For cloud authentication
 const SURREALDB_USER = process.env.SURREALDB_USER;
 const SURREALDB_PASS = process.env.SURREALDB_PASS;
-const SURREALDB_NS = process.env.SURREALDB_NS;
-const SURREALDB_DB = process.env.SURREALDB_DB;
+const SURREALDB_NS = process.env.SURREALDB_NS || 'scraper'; // Default to 'scraper' namespace
+const SURREALDB_DB = process.env.SURREALDB_DB || 'scraper'; // Default to 'scraper' database
 
 // Log the database configuration (without passwords/tokens)
 console.log(`SurrealDB Configuration:\n  Host: ${SURREALDB_HOST}\n  User: ${SURREALDB_USER}\n  NS: ${SURREALDB_NS}\n  DB: ${SURREALDB_DB}\n  Using token auth: ${!!SURREALDB_TOKEN}`);
@@ -157,17 +157,33 @@ For more specific information, please try again later when the database connecti
       // This is a simplified example - in a real implementation you would:
       // 1. Convert the query to an embedding vector
       // 2. Perform a vector similarity search in SurrealDB
+      
+      // First try to query the pages table which likely contains scraped content
       const result = await db.query(
-        `SELECT * FROM knowledge_base 
+        `SELECT * FROM pages 
          WHERE content CONTAINS $search 
          ORDER BY score() DESC 
          LIMIT 5`,
         { search: searchQuery }
       );
       
-      // Process the results
-      const resultData = result as any;
-      const firstResult = resultData[0]?.result || [];
+      let resultData = result as any;
+      let firstResult = resultData[0]?.result || [];
+      
+      // If no results found in pages table, try the knowledge_base table as fallback
+      if (firstResult.length === 0) {
+        console.log('No results found in pages table, trying knowledge_base table');
+        const fallbackResult = await db.query(
+          `SELECT * FROM knowledge_base 
+           WHERE content CONTAINS $search 
+           ORDER BY score() DESC 
+           LIMIT 5`,
+          { search: searchQuery }
+        );
+        
+        resultData = fallbackResult as any;
+        firstResult = resultData[0]?.result || [];
+      }
       
       if (firstResult.length === 0) {
         return `I couldn't find any information related to "${query}" in the Salish Sea Consulting knowledge base. Would you like to ask about another topic?`;
@@ -209,12 +225,13 @@ const addKnowledgeTool = createTool({
     }
     
     try {
-      // Create a new knowledge base entry
-      const created = await db.create('knowledge_base', {
+      // Create a new knowledge base entry in the custom_knowledge table
+      const created = await db.create('custom_knowledge', {
         title,
         content,
         tags,
         created_at: new Date().toISOString(),
+        source: 'user_input',
       });
       
       return `Successfully added new knowledge to the database with title: "${title}".`;
