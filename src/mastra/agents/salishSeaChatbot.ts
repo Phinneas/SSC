@@ -15,8 +15,16 @@ const db = new Surreal();
 
 async function initializeSurrealDBConnection() {
   try {
-    // Connect to the database
-    await db.connect(SURREALDB_HOST);
+    console.log(`Attempting to connect to SurrealDB at ${SURREALDB_HOST}...`);
+    
+    // Set a timeout for the connection attempt
+    const connectionPromise = db.connect(SURREALDB_HOST);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000)
+    );
+    
+    // Race the connection against a timeout
+    await Promise.race([connectionPromise, timeoutPromise]);
     
     // Select a specific namespace / database
     await db.use({
@@ -35,14 +43,24 @@ async function initializeSurrealDBConnection() {
     // Optional: Make a very simple query to ensure the connection is active
     const result = await db.query("INFO FOR DB");
     console.log("Connection verified with query result:", result);
+    return true;
   } catch (error) {
     console.error("Failed to connect to SurrealDB:", error);
+    console.log("Application will continue without database connection");
+    return false;
   }
 }
 
-initializeSurrealDBConnection().catch(err => {
-  console.error("SurrealDB initialization failed at top level:", err);
-});
+// Initialize database but don't let it crash the application
+let dbConnected = false;
+initializeSurrealDBConnection()
+  .then(success => {
+    dbConnected = success;
+  })
+  .catch(err => {
+    console.error("SurrealDB initialization failed at top level:", err);
+    console.log("Application will continue running without database connection");
+  });
 
 // --- Define a Mock RAG Tool (updated to check SurrealDB) ---
 const knowledgeBaseTool = createTool({
@@ -54,12 +72,21 @@ const knowledgeBaseTool = createTool({
   execute: async ({ context }) => {
     const { query } = context;
     let surrealDbStatus = "Disconnected or Error";
-    try {
-        const result = await db.query("INFO FOR DB"); // Attempt a simple query
+    
+    // Only attempt to query the database if we're connected
+    if (dbConnected) {
+      try {
+        const result = await db.query("INFO FOR DB");
         surrealDbStatus = "Connected and operational";
-    } catch (error: any) {
-        surrealDbStatus = `Failed to confirm connection: ${error.message}`;
+      } catch (error: any) {
+        // Don't let database errors crash the application
+        console.error("Database query error in RAG tool:", error);
+        surrealDbStatus = `Error during query: ${error.message}`;
+      }
+    } else {
+      surrealDbStatus = "Not connected - application running in limited mode";
     }
+    
     return `MOCK RAG: Your query was "${query}". SurrealDB connection status: ${surrealDbStatus}.\n\nHere's some mock data about Salish Sea Consulting:\n- Specializes in marine ecosystem management\n- Offers services in environmental impact assessment\n- Has expertise in sustainable fisheries management\n- Provides data-driven solutions for coastal communities`;
   },
 });
