@@ -1,26 +1,46 @@
-import { Agent } from "@mastra/core/agent";
-import { openai } from "@ai-sdk/openai";
-import { z } from "zod";
-import { Surreal } from 'surrealdb'; // SurrealDB client
+import { Agent } from '@mastra/core';
 import { createTool } from "@mastra/core/tools";
+import { z } from 'zod';
+import { openai } from "@ai-sdk/openai";
 
-// --- Initialize SurrealDB Connection ---
-const SURREALDB_HOST = process.env.SURREALDB_HOST!;
-const SURREALDB_USER = process.env.SURREALDB_USER!;
-const SURREALDB_PASS = process.env.SURREALDB_PASS!;
-const SURREALDB_NS = process.env.SURREALDB_NS!;
-const SURREALDB_DB = process.env.SURREALDB_DB!;
-
+// Import SurrealDB client
+import { Surreal } from 'surrealdb';
 const db = new Surreal();
 
+// Database connection state
+let dbConnected = false;
+let dbConnectionAttempted = false;
+
+// --- SurrealDB Connection Configuration ---
+// Use optional chaining to prevent errors if env vars are missing
+const SURREALDB_HOST = process.env.SURREALDB_HOST;
+const SURREALDB_USER = process.env.SURREALDB_USER;
+const SURREALDB_PASS = process.env.SURREALDB_PASS;
+const SURREALDB_NS = process.env.SURREALDB_NS;
+const SURREALDB_DB = process.env.SURREALDB_DB;
+
+// Function to check if all required DB config is present
+function hasRequiredDbConfig() {
+  return !!SURREALDB_HOST && !!SURREALDB_USER && !!SURREALDB_PASS && !!SURREALDB_NS && !!SURREALDB_DB;
+}
+
+// Deferred database initialization function
 async function initializeSurrealDBConnection() {
+  // Only attempt connection if not already attempted and all config is present
+  if (dbConnectionAttempted || !hasRequiredDbConfig()) {
+    return false;
+  }
+  
+  dbConnectionAttempted = true;
+  console.log('Attempting deferred SurrealDB connection...');
+  
   try {
-    console.log(`Attempting to connect to SurrealDB at ${SURREALDB_HOST}...`);
+    console.log(`Connecting to SurrealDB at ${SURREALDB_HOST}...`);
     
     // Set a timeout for the connection attempt
-    const connectionPromise = db.connect(SURREALDB_HOST);
+    const connectionPromise = db.connect(SURREALDB_HOST!);
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000)
+      setTimeout(() => reject(new Error('Connection timeout after 5 seconds')), 5000)
     );
     
     // Race the connection against a timeout
@@ -28,21 +48,18 @@ async function initializeSurrealDBConnection() {
     
     // Select a specific namespace / database
     await db.use({
-      namespace: SURREALDB_NS,
-      database: SURREALDB_DB
+      namespace: SURREALDB_NS!,
+      database: SURREALDB_DB!
     });
     
     // Signin with credentials
     await db.signin({
-      username: SURREALDB_USER,
-      password: SURREALDB_PASS
+      username: SURREALDB_USER!,
+      password: SURREALDB_PASS!
     });
     
     console.log("Connected to SurrealDB successfully!");
-    
-    // Optional: Make a very simple query to ensure the connection is active
-    const result = await db.query("INFO FOR DB");
-    console.log("Connection verified with query result:", result);
+    dbConnected = true;
     return true;
   } catch (error) {
     console.error("Failed to connect to SurrealDB:", error);
@@ -51,16 +68,14 @@ async function initializeSurrealDBConnection() {
   }
 }
 
-// Initialize database but don't let it crash the application
-let dbConnected = false;
-initializeSurrealDBConnection()
-  .then(success => {
-    dbConnected = success;
-  })
-  .catch(err => {
-    console.error("SurrealDB initialization failed at top level:", err);
-    console.log("Application will continue running without database connection");
-  });
+// We'll attempt to connect to the database after a delay to ensure the server starts first
+setTimeout(() => {
+  initializeSurrealDBConnection()
+    .catch(err => {
+      console.error("SurrealDB initialization failed at top level:", err);
+      console.log("Application will continue running without database connection");
+    });
+}, 5000); // Wait 5 seconds before attempting to connect
 
 // --- Define a Mock RAG Tool (updated to check SurrealDB) ---
 const knowledgeBaseTool = createTool({
