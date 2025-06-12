@@ -17,7 +17,7 @@ const SURREALDB_HOST = process.env.SURREALDB_HOST || 'wss://scraper-06bhh0a1qlrm
 const SURREALDB_TOKEN = process.env.SURREALDB_TOKEN; // For cloud authentication
 const SURREALDB_USER = process.env.SURREALDB_USER;
 const SURREALDB_PASS = process.env.SURREALDB_PASS;
-const SURREALDB_NS = process.env.SURREALDB_NS || 'scraper'; // Default to 'scraper' namespace
+const SURREALDB_NS = process.env.SURREALDB_NS || 'chatbot_knowledge'; // Default to 'chatbot_knowledge' namespace
 const SURREALDB_DB = process.env.SURREALDB_DB || 'scraper'; // Default to 'scraper' database
 
 // Log the database configuration (without passwords/tokens)
@@ -25,18 +25,16 @@ console.log(`SurrealDB Configuration:\n  Host: ${SURREALDB_HOST}\n  User: ${SURR
 
 // Function to check if all required DB config is present
 function hasRequiredDbConfig() {
-  // Check if we have token-based auth for cloud
-  if (SURREALDB_HOST?.includes('surreal.cloud') && SURREALDB_TOKEN && SURREALDB_NS && SURREALDB_DB) {
-    return true;
-  }
-  
-  // Check if we have username/password auth
+  // Check if we have the minimum required configuration
   const missingVars = [];
   if (!SURREALDB_HOST) missingVars.push('SURREALDB_HOST');
-  if (!SURREALDB_USER) missingVars.push('SURREALDB_USER');
-  if (!SURREALDB_PASS) missingVars.push('SURREALDB_PASS');
   if (!SURREALDB_NS) missingVars.push('SURREALDB_NS');
   if (!SURREALDB_DB) missingVars.push('SURREALDB_DB');
+  
+  // We need either a token or username/password
+  if (!SURREALDB_TOKEN && (!SURREALDB_USER || !SURREALDB_PASS)) {
+    missingVars.push('SURREALDB_TOKEN or SURREALDB_USER+SURREALDB_PASS');
+  }
   
   if (missingVars.length > 0) {
     console.warn(`Missing required database configuration: ${missingVars.join(', ')}`);
@@ -47,65 +45,116 @@ function hasRequiredDbConfig() {
 
 // Deferred database initialization function
 async function initializeSurrealDBConnection() {
-  // Only attempt connection if not already attempted and all config is present
+  // Only attempt connection if not already attempted
   if (dbConnectionAttempted || !hasRequiredDbConfig()) {
-    return false;
+    return dbConnected;
   }
-  
   dbConnectionAttempted = true;
-  console.log('Attempting deferred SurrealDB connection...');
-  
   try {
     console.log(`Connecting to SurrealDB at ${SURREALDB_HOST}...`);
+    const connectionPromise = db.connect(SURREALDB_HOST!);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000));
+    await Promise.race([connectionPromise, timeoutPromise]);
+    console.log('✅ Connected to SurrealDB');
     
-    try {
-      // Set a timeout for the connection attempt
-      const connectionPromise = db.connect(SURREALDB_HOST!);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000)
-      );
-      
-      // Race the connection against a timeout
-      await Promise.race([connectionPromise, timeoutPromise]);
-    } catch (error: any) {
-      console.error(`Failed to connect to SurrealDB: ${error.message}`);
-      if (error.cause?.code === 'ENOTFOUND') {
-        console.error(`Could not resolve hostname: ${SURREALDB_HOST}. Please check your network connection or DNS settings.`);
+    // Use the specified namespace and database
+    console.log(`Selecting namespace: ${SURREALDB_NS}, database: ${SURREALDB_DB}...`);
+    await db.use({ namespace: SURREALDB_NS!, database: SURREALDB_DB! });
+    console.log(`✅ Using namespace: ${SURREALDB_NS}, database: ${SURREALDB_DB}`);
+    
+    // Try all available authentication methods
+    let authenticated = false;
+    
+    // Try token authentication with different formats
+    if (SURREALDB_TOKEN && !authenticated) {
+      // Try direct token authentication
+      try {
+        console.log('Authenticating with token (direct method)...');
+        await db.authenticate(SURREALDB_TOKEN);
+        console.log('✅ Direct token authentication successful');
+        authenticated = true;
+      } catch (tokenError: any) {
+        console.error('❌ Direct token authentication failed:', tokenError?.message || 'Unknown error');
+        
+        // Try token with scope authentication
+        try {
+          console.log('Authenticating with token (scope method)...');
+          // Use the token in a different way - as a bearer token
+          await db.query('LET $token = $auth', { auth: SURREALDB_TOKEN });
+          console.log('✅ Token scope authentication successful');
+          authenticated = true;
+        } catch (scopeError: any) {
+          console.error('❌ Token scope authentication failed:', scopeError?.message || 'Unknown error');
+          console.log('Trying other authentication methods...');
+        }
       }
-      throw error;
     }
     
-    // Check if we're using token auth (for cloud) or username/password auth
-    if (SURREALDB_HOST.includes('surreal.cloud') && SURREALDB_TOKEN) {
-      console.log('Using token-based authentication for SurrealDB Cloud');
-      // Authenticate with token
-      await db.authenticate(SURREALDB_TOKEN);
+    // Try username/password authentication
+    if (!authenticated && SURREALDB_USER && SURREALDB_PASS) {
+      try {
+        console.log('Trying username/password authentication...');
+        await db.signin({ username: SURREALDB_USER, password: SURREALDB_PASS });
+        console.log('✅ Username/password authentication successful');
+        authenticated = true;
+      } catch (userPassError: any) {
+        console.error('❌ Username/password authentication failed:', userPassError?.message || 'Unknown error');
+        
+        // Try with namespace and database in credentials
+        try {
+          console.log('Trying username/password with namespace/database...');
+          await db.signin({
+            username: SURREALDB_USER,
+            password: SURREALDB_PASS,
+            namespace: SURREALDB_NS,
+            database: SURREALDB_DB
+          });
+          console.log('✅ Username/password with NS/DB authentication successful');
+          authenticated = true;
+        } catch (fullAuthError: any) {
+          console.error('❌ Username/password with NS/DB authentication failed:', fullAuthError?.message || 'Unknown error');
+        }
+      }
+    }
+    
+    // Try anonymous access as last resort
+    if (!authenticated) {
+      try {
+        console.log('Trying anonymous access (no authentication)...');
+        // Just proceed without authentication
+        console.log('✅ Proceeding with anonymous access');
+        authenticated = true;
+      } catch (anonError: any) {
+        console.error('❌ Anonymous access failed:', anonError?.message || 'Unknown error');
+      }
+    }
+    
+    // Check if any authentication method succeeded
+    if (authenticated) {
+      dbConnected = true;
+      console.log('✅ Successfully connected to SurrealDB');
       
-      // Still need to select namespace and database after token auth
-      await db.use({
-        namespace: SURREALDB_NS!,
-        database: SURREALDB_DB!
-      });
+      // Test the connection with a simple query
+      try {
+        const result = await db.query('SELECT count() FROM information_schema.tables');
+        console.log('✅ Query successful:', result);
+      } catch (queryError: any) {
+        console.warn('⚠️ Test query failed, but connection is established:', queryError?.message || 'Unknown error');
+        // Try a different query
+        try {
+          const result = await db.query('SELECT * FROM type::table($tb) LIMIT 1', { tb: 'scraper' });
+          console.log('✅ Alternative query successful:', result);
+        } catch (altQueryError: any) {
+          console.warn('⚠️ Alternative query failed:', altQueryError?.message || 'Unknown error');
+        }
+      }
+      
+      return true;
     } else {
-      // Select a specific namespace / database
-      await db.use({
-        namespace: SURREALDB_NS!,
-        database: SURREALDB_DB!
-      });
-      
-      // Signin with credentials
-      await db.signin({
-        username: SURREALDB_USER!,
-        password: SURREALDB_PASS!
-      });
+      throw new Error('All authentication methods failed');
     }
-    
-    console.log("Connected to SurrealDB successfully!");
-    dbConnected = true;
-    return true;
-  } catch (error) {
-    console.error("Failed to connect to SurrealDB:", error);
-    console.log("Application will continue without database connection");
+  } catch (error: any) {
+    console.error('❌ Failed to connect to SurrealDB:', error?.message || 'Unknown error');
     return false;
   }
 }

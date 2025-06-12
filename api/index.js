@@ -3,7 +3,7 @@
 // Import the Mastra instance
 import { mastra } from '../src/mastra/index.js';
 
-// Create a request handler for Vercel
+// Create a handler function that works with Vercel Edge Functions
 export default async function handler(req, res) {
   // Parse the URL to get the path
   const url = new URL(req.url, `https://${req.headers.host}`);
@@ -37,6 +37,7 @@ export default async function handler(req, res) {
         <body>
           <h1>Salish Sea Consulting Chatbot</h1>
           <p>The chatbot API is available at <a href="/agents/salishSeaChatbot">/agents/salishSeaChatbot</a></p>
+          <p>SurrealDB connection status: ${mastra.state.dbConnected ? '✅ Connected' : '❌ Not connected'}</p>
         </body>
       </html>
     `);
@@ -69,6 +70,6 @@ export default async function handler(req, res) {
     res.status(status).send(body);
   } catch (error) {
     console.error('Error processing request:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Internal Server Error', message: error.message });
   }
 }
